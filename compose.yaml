@@ -37,7 +37,33 @@ services:
 
     volumes:
       - .:/app
+  airflow:
+    container_name: delivery-airflow
+    image: delivery-airflow:local
+    command: standalone
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - .:/opt/airflow/project:ro
+    build:
+        context: .
+        dockerfile: Dockerfile.airflow
+
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      PYTHONPATH: "/opt/airflow/project"
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: delivery_db
+      DB_USER: postgres
+      DB_PASSWORD: root
+
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   delivery_postgres_data:
     external: true
+    
