@@ -1,42 +1,28 @@
-from getpass import getpass
-from typing import Any
+from __future__ import annotations
+
+import os
+from pathlib import Path
 
 import psycopg
 
-from etl.create_summary import load_summary
-from etl.extract_orders import extract_orders
-from etl.transform_orders import transform_orders
+from etl.lade_pipeline import run_lade_pipeline
 
 
-def run_pipeline(conn: Any) -> dict[str, Any]:
-    """Run the complete ETL flow with the caller-provided connection."""
-    orders = extract_orders(conn)
-    summary = transform_orders(orders)
-    load_summary(conn, summary)
-    return summary
-
-
-import os
-
-def _connection() -> psycopg.Connection:
+def get_connection() -> psycopg.Connection:
     return psycopg.connect(
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT"),
-        dbname=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
+        host=os.getenv("DB_HOST", "localhost"), port=os.getenv("DB_PORT", "5433"),
+        dbname=os.getenv("DB_NAME", "delivery_db"), user=os.getenv("DB_USER", "postgres"),
+        password=os.getenv("DB_PASSWORD", "root"),
     )
 
-def main() -> None:
-    # The context manager commits on success, rolls back on error, and closes
-    # the one connection after the whole pipeline has finished.
-    with _connection() as conn:
-        summary = run_pipeline(conn)
 
+def main() -> None:
+    csv_path = Path(os.getenv("LADE_CSV_PATH", "datasets/raw/delivery_five_cities.csv"))
+    with get_connection() as conn:
+        result = run_lade_pipeline(conn, csv_path)
     print(
-        "Pipeline completed: "
-        f"{summary['nbr_commandes']} orders, "
-        f"total={summary['somme']}, average={summary['moyenne']}"
+        f"LaDe pipeline completed: {result['raw_rows']} raw rows, "
+        f"{result['valid_rows']} valid rows, {result['invalid_rows']} invalid rows."
     )
 
 

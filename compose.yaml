@@ -37,6 +37,7 @@ services:
 
     volumes:
       - .:/app
+      - ./datasets:/app/datasets:ro
   airflow:
     container_name: delivery-airflow
     image: delivery-airflow:local
@@ -46,6 +47,7 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - .:/opt/airflow/project:ro
+      - ./datasets:/opt/airflow/datasets:ro
     build:
         context: .
         dockerfile: Dockerfile.airflow
@@ -58,6 +60,8 @@ services:
       DB_NAME: delivery_db
       DB_USER: postgres
       DB_PASSWORD: root
+      LADE_CSV_PATH: /opt/airflow/datasets/raw/delivery_five_cities.csv
+      AIRFLOW_CONN_DELIVERY_POSTGRES: postgresql://postgres:root@postgres:5432/delivery_db
 
     depends_on:
       postgres:
