@@ -1,87 +1,84 @@
-# Pipeline Data Engineering LaDe
+# E-commerce Delivery Pipeline 2026
 
-Ce projet charge le fichier réel `Cainiao-AI/LaDe/delivery_five_cities.csv` dans PostgreSQL, le valide, le transforme et produit des agrégations quotidiennes orchestrées par Airflow 3.
+Pipeline Data Engineering Python, PostgreSQL 18, Airflow 3 et Docker basé sur le dataset Kaggle [E-Commerce Delivery and Shipping Data 2026](https://www.kaggle.com/datasets/datascikhan/e-commerce-delivery-and-shipping-data-2026).
 
-## Audit du fichier fourni
+## Dataset audité
 
-Le fichier local audité fait 135 539 702 octets, contient 472 419 lignes et porte le SHA-256 `a22b49b57a0201a2b569f80a8282e9147d37db1c2cc374fdf6111aad3d9a3d97`.
+- 50 000 commandes et 30 colonnes
+- Période : 2026-01-01 au 2026-12-31
+- 50 000 `order_id` distincts, aucun doublon exact et aucune valeur vide
+- 6 348 clients, 17 pays, 10 entrepôts, 8 transporteurs et 12 catégories
+- 28 162 commandes marquées en retard et 8 625 demandes de retour
+- Fichier : `E-commerce_Delivery_Shipping_Data_2026.csv`
+- SHA-256 : `ec8c8fc0decb5a110eb4987c262a866a26de4e9c2ad11befb2836b975046bf2b`
 
-Colonnes réelles :
-
-```text
-order_id, from_dipan_id, from_city_name, delivery_user_id,
-poi_lng, poi_lat, aoi_id, typecode, receipt_time,
-receipt_lng, receipt_lat, sign_time, sign_lng, sign_lat, ds
-```
-
-Constats principaux :
-
-- Le grain est une commande/un événement de livraison, et non un point de trajectoire GPS.
-- Les 472 419 `order_id` sont distincts ; 1 870 livreurs, 134 régions et 23 659 AOI sont présents.
-- Le fichier nommé « five cities » ne contient ici que Hangzhou (185 589), Shanghai (165 583) et Chongqing (121 247).
-- `sign_lng` et `sign_lat` sont vides à 100 %. `typecode` est vide sur 1 360 lignes (0,288 %).
-- `ds` est un mois-jour `MMDD` sur 15 jours. `receipt_time` et `sign_time` utilisent `MM-DD HH:MM:SS`, sans année ni fuseau horaire.
-- Les coordonnées ont des ordres de grandeur d'environ 8,8 à 10,6 millions et -7,8 à -7,4 millions. Elles ne sont pas des degrés WGS84. Le pipeline les conserve comme coordonnées projetées/anonymisées `x/y`, sans distance ni carte.
-
-La fiche officielle LaDe décrit le jeu principal LaDe-D avec un autre schéma. Ce fichier précis, anciennement nommé `delivery_trajectory.csv`, doit donc être traité selon ses propres colonnes.
-
-Sources : [dataset LaDe](https://huggingface.co/datasets/Cainiao-AI/LaDe), [fichier exact](https://huggingface.co/datasets/Cainiao-AI/LaDe/blob/main/delivery_five_cities.csv).
+Le projet télécharge automatiquement le fichier public avec `kagglehub` s'il n'existe pas dans `datasets/raw/`.
 
 ## Architecture
 
-- `migrations/001_lade_delivery.sql` : migration additive, idempotente, sans suppression des anciennes tables.
-- `migrations/001_lade_delivery_down.sql` : rollback explicite des seules tables LaDe.
-- `etl/lade_extract.py` : contrôle du schéma, SHA-256, lecture UTF-8 et chargement par lots.
-- `etl/lade_transform.py` : validation SQL, tables nettoyées et statistiques.
-- `etl/lade_pipeline.py` : transaction du pipeline CLI.
-- `dags/delivery_pipeline.py` : DAG Airflow avec branche fichier vide, XCom légers et contrôle qualité avant chargement analytique.
-- `datasets/raw/` : emplacement du CSV, séparé des données PostgreSQL.
+- `etl/ecommerce_extract.py` : téléchargement Kaggle, audit, SHA-256 et ingestion par lots.
+- `etl/ecommerce_transform.py` : validation, conversion des types et KPI quotidiens.
+- `etl/ecommerce_pipeline.py` : transaction complète et rollback en cas d'erreur.
+- `dags/delivery_pipeline.py` : orchestration Airflow sans données volumineuses dans XCom.
+- `migrations/002_ecommerce_delivery.sql` : migration PostgreSQL additive.
+- `tests/` : tests du CSV et de la migration.
 
-Tables ajoutées : `lade_ingestion_runs`, `lade_delivery_raw`, `lade_couriers`, `lade_delivery_events` et `lade_daily_city_stats`.
+Tables utilisées :
 
-L'idempotence repose sur le SHA-256 du fichier et sur `order_id`. Un second lancement ne duplique ni les lignes brutes ni les événements ni les agrégats.
+- `ecommerce_ingestion_runs` : suivi des fichiers par SHA-256.
+- `ecommerce_orders_raw` : copie brute des 30 colonnes.
+- `ecommerce_orders` : commandes nettoyées et typées.
+- `ecommerce_daily_stats` : volumes, retards, retours, délais, valeur et coût par date.
 
-## Exécution sous PowerShell
+Les anciennes tables LaDe ne sont pas supprimées automatiquement afin d'éviter toute perte de données.
 
-Placez le fichier sous `datasets/raw/delivery_five_cities.csv`, puis :
+## Exécution PowerShell
 
 ```powershell
-docker compose up -d postgres
-Get-Content -Raw .\migrations\001_lade_delivery.sql | docker exec -i delivery-postgres psql -U postgres -d delivery_db -v ON_ERROR_STOP=1
+cd C:\Users\yahya\Desktop\postgresql
 
 $env:UV_PROJECT_ENVIRONMENT = '.venv-win'
 uv sync --dev
+
+docker compose up -d postgres
+Get-Content -Raw .\migrations\002_ecommerce_delivery.sql |
+    docker exec -i delivery-postgres psql -U postgres -d delivery_db -v ON_ERROR_STOP=1
+
 uv run python .\main.py
 uv run pytest -q
 ```
 
-Pour Airflow :
+Sortie attendue :
+
+```text
+E-commerce pipeline completed: 50000 raw rows, 50000 valid rows, 0 invalid rows.
+```
+
+## Airflow
 
 ```powershell
 docker compose up -d --build airflow
-docker compose exec airflow airflow dags list
+docker compose exec airflow airflow dags unpause delivery_pipeline
 docker compose exec airflow airflow dags trigger delivery_pipeline
+docker compose exec airflow airflow dags list-runs delivery_pipeline --limit 1
 ```
 
-Interface : `http://localhost:8080`. Le mot de passe du mode `standalone` est régénéré lors d'une nouvelle initialisation et se lit avec :
+Le mode `standalone` initialise et migre automatiquement la base de métadonnées Airflow. Ne lancez pas `airflow db migrate` pendant que le conteneur `airflow` fonctionne.
+
+Interface : `http://localhost:8080`. Utilisateur : `admin`.
 
 ```powershell
 docker compose exec airflow sh -c "cat /opt/airflow/simple_auth_manager_passwords.json.generated"
 ```
 
-## KPI disponibles et limites
-
-`lade_daily_city_stats` fournit le nombre de livraisons, livreurs, régions, AOI et types manquants par ville et `ds`. Les tables sources permettent aussi les volumes par livreur, AOI, région ou type.
-
-Les distances, vitesses, retards et durées calendaires ne sont volontairement pas calculés : le CRS, l'année et le fuseau ne sont pas confirmés, et les coordonnées de signature sont absentes. Les fichiers LaDe-D normalisés permettraient ensuite l'analyse des durées acceptation-livraison, des trajectoires proches des événements et des modèles ETA/routage.
-
-## Requêtes de contrôle
+## KPI SQL
 
 ```sql
-SELECT status, rows_seen, rows_inserted, source_sha256 FROM lade_ingestion_runs;
-SELECT COUNT(*) FROM lade_delivery_raw;
-SELECT COUNT(*) FROM lade_delivery_events;
-SELECT * FROM lade_daily_city_stats ORDER BY ds, city_name;
+SELECT COUNT(*) FROM ecommerce_orders;
+SELECT * FROM ecommerce_daily_stats ORDER BY order_date;
+SELECT carrier, COUNT(*) AS orders, ROUND(AVG(late_delivery::integer), 4) AS late_rate
+FROM ecommerce_orders
+GROUP BY carrier
+ORDER BY late_rate DESC;
 ```
-
-Le rollback est disponible dans `migrations/001_lade_delivery_down.sql`, mais n'est jamais exécuté automatiquement.
+myp : 4SkqKX3bx9sg4TNF

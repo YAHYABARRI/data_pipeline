@@ -3,7 +3,18 @@ from pathlib import Path
 
 import pytest
 
-from etl.lade_extract import REQUIRED_COLUMNS, inspect_source, iter_batches, source_metadata
+from etl.ecommerce_extract import REQUIRED_COLUMNS, inspect_source, iter_batches, source_metadata
+
+
+def valid_row() -> dict[str, str]:
+    return {column: "value" for column in REQUIRED_COLUMNS} | {
+        "order_id": "ORD-1", "order_date": "2026-01-01", "customer_id": "CUS-1",
+        "product_weight_kg": "1.25", "order_value_usd": "100.00", "distance_km": "20",
+        "promised_delivery_days": "3", "actual_delivery_days": "4", "late_delivery": "Yes",
+        "delivery_delay_days": "1", "shipping_cost_usd": "5.00", "customer_rating": "4",
+        "return_requested": "No", "return_reason": "None", "delivery_attempts": "1",
+        "warehouse_processing_hours": "12.5",
+    }
 
 
 def write_csv(path: Path, rows: list[dict[str, str]], columns=REQUIRED_COLUMNS) -> None:
@@ -13,25 +24,13 @@ def write_csv(path: Path, rows: list[dict[str, str]], columns=REQUIRED_COLUMNS) 
         writer.writerows(rows)
 
 
-def valid_row() -> dict[str, str]:
-    return {
-        "order_id": "order-1", "from_dipan_id": "region-1", "from_city_name": "杭州市",
-        "delivery_user_id": "courier-1", "poi_lng": "10448472.1", "poi_lat": "-7587086.1",
-        "aoi_id": "aoi-1", "typecode": "type-1", "receipt_time": "03-18 07:28:00",
-        "receipt_lng": "10447914.9", "receipt_lat": "-7586259.4",
-        "sign_time": "03-20 12:40:00", "sign_lng": "", "sign_lat": "", "ds": "0318",
-    }
-
-
-def test_inspect_and_batch_unicode_csv(tmp_path: Path):
-    path = tmp_path / "source.csv"
-    write_csv(path, [valid_row(), {**valid_row(), "order_id": "order-2"}])
-    audit = inspect_source(path)
-    assert audit["has_data"] is True
-    assert audit["missing_columns"] == []
+def test_inspect_and_batch_csv(tmp_path: Path):
+    path = tmp_path / "orders.csv"
+    write_csv(path, [valid_row(), valid_row() | {"order_id": "ORD-2"}])
+    assert inspect_source(path)["has_data"] is True
     batches = list(iter_batches(path, chunk_size=1))
     assert len(batches) == 2
-    assert batches[0][0][2] == "杭州市"
+    assert batches[0][0][0] == "ORD-1"
     assert batches[0][0][-1] == 2
 
 
@@ -51,7 +50,7 @@ def test_missing_column_is_rejected(tmp_path: Path):
 
 
 def test_hash_is_stable(tmp_path: Path):
-    path = tmp_path / "source.csv"
+    path = tmp_path / "orders.csv"
     write_csv(path, [valid_row()])
     assert source_metadata(path)["source_sha256"] == source_metadata(path)["source_sha256"]
 

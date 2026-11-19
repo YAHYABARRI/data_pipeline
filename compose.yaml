@@ -45,6 +45,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
+      - airflow_home:/opt/airflow
       - ./dags:/opt/airflow/dags
       - .:/opt/airflow/project:ro
       - ./datasets:/opt/airflow/datasets:ro
@@ -60,7 +61,7 @@ services:
       DB_NAME: delivery_db
       DB_USER: postgres
       DB_PASSWORD: root
-      LADE_CSV_PATH: /opt/airflow/datasets/raw/delivery_five_cities.csv
+      ECOMMERCE_CSV_PATH: /opt/airflow/datasets/raw/E-commerce_Delivery_Shipping_Data_2026.csv
       AIRFLOW_CONN_DELIVERY_POSTGRES: postgresql://postgres:root@postgres:5432/delivery_db
 
     depends_on:
@@ -70,4 +71,5 @@ services:
 volumes:
   delivery_postgres_data:
     external: true
+  airflow_home:
     

@@ -6,10 +6,13 @@ from datetime import timedelta
 import psycopg
 from airflow.sdk import BaseHook, dag, task
 
-from etl.lade_extract import ingest_csv, inspect_source, source_metadata
-from etl.lade_transform import quality_report, refresh_daily_stats, transform_source
+from etl.ecommerce_extract import ingest_csv, inspect_source, source_metadata
+from etl.ecommerce_transform import quality_report, refresh_daily_stats, transform_source
 
-CSV_PATH = os.getenv("LADE_CSV_PATH", "/opt/airflow/datasets/raw/delivery_five_cities.csv")
+CSV_PATH = os.getenv(
+    "ECOMMERCE_CSV_PATH",
+    "/opt/airflow/datasets/raw/E-commerce_Delivery_Shipping_Data_2026.csv",
+)
 
 
 def get_connection():
@@ -31,13 +34,12 @@ def get_connection():
 @dag(
     dag_id="delivery_pipeline", schedule=None, catchup=False,
     default_args={"retries": 2, "retry_delay": timedelta(minutes=2)},
-    tags=["delivery", "lade", "etl"],
+    tags=["delivery", "ecommerce", "etl"],
 )
 def delivery_pipeline():
     @task
     def inspect_source_task() -> dict:
-        audit = inspect_source(CSV_PATH)
-        return {**audit, **source_metadata(CSV_PATH)}
+        return inspect_source(CSV_PATH) | source_metadata(CSV_PATH)
 
     @task.branch
     def check_data(source: dict) -> str:
@@ -54,19 +56,19 @@ def delivery_pipeline():
     def transform_data(extracted: dict) -> dict:
         with get_connection() as conn:
             result = transform_source(conn, extracted["source_sha256"])
-        return {**extracted, **result}
+        return extracted | result
 
     @task
     def check_data_quality(transformed: dict) -> dict:
         with get_connection() as conn:
             result = quality_report(conn, transformed["source_sha256"])
-        return {**transformed, **result}
+        return transformed | result
 
     @task
     def load_data(validated: dict) -> dict:
         with get_connection() as conn:
             aggregate_rows = refresh_daily_stats(conn)
-        return {**validated, "aggregate_rows": aggregate_rows}
+        return validated | {"aggregate_rows": aggregate_rows}
 
     @task
     def skip_processing() -> None:
